@@ -1,6 +1,6 @@
 # Collaborative Kanban Board with Real-Time Sync
 
-    **Assignment Submission — Antbox**
+**Assignment Submission — Antbox**
 
 ---
 
@@ -9,6 +9,7 @@
 | Resource | Link |
 | --- | --- |
 | 🌐 Deployed Web App | [Open App](https://script.google.com/macros/s/AKfycbwVl4srCviTvIxxB2udsdNVSwsUcbcOAG8n5Y-ySlrHcxZOFgOn2FfG5xIxsVM7FPt24Q/exec) |
+| 💾 Github Repo | [View Repository](https://github.com/PrateekRaj8125/WebApp-Project) |
 | 📄 Code.gs (Backend) | [View on GitHub](https://github.com/PrateekRaj8125/WebApp-Project/blob/main/code/Code.gs) |
 | 🖼️ Index.html (Frontend) | [View on GitHub](https://github.com/PrateekRaj8125/WebApp-Project/blob/main/code/Index.html) |
 | ⚙️ JavaScript.html (Client Logic) | [View on GitHub](https://github.com/PrateekRaj8125/WebApp-Project/blob/main/code/JavaScript.html) |
