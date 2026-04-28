@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanban Board</title>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+    }
+    header {
+      background: #1a1a2e;
+      color: white;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    header h1 { font-size: 1.4rem; letter-spacing: 1px; }
+    #sync-status {
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #2ecc71;
+      color: white;
+    }
+    #sync-status.syncing { background: #f39c12; }
+    #sync-status.error   { background: #e74c3c; }
+    .board {
+      display: flex;
+      gap: 20px;
+      padding: 24px;
+      overflow-x: auto;
+      min-height: calc(100vh - 64px);
+    }
+    .column {
+      background: #e2e8f0;
+      border-radius: 12px;
+      width: 300px;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 110px);
+    }
+    .column-header {
+      padding: 14px 16px;
+      border-radius: 12px 12px 0 0;
+      font-weight: 700;
+      font-size: 0.9rem;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .col-backlog    .column-header { background: #6c757d; color: white; }
+    .col-inprogress .column-header { background: #0d6efd; color: white; }
+    .col-done       .column-header { background: #198754; color: white; }
+    .task-count {
+      background: rgba(255,255,255,0.3);
+      border-radius: 12px;
+      padding: 2px 8px;
+      font-size: 0.8rem;
+    }
+    .task-list {
+      padding: 10px;
+      flex: 1;
+      overflow-y: auto;
+      min-height: 60px;
+    }
+    .task-list.drag-over { background: rgba(0,0,0,0.05); border-radius: 8px; }
+    .task-card {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      cursor: grab;
+      transition: box-shadow 0.2s, transform 0.2s;
+      position: relative;
+    }
+    .task-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); transform: translateY(-1px); }
+    .task-card.sortable-ghost { opacity: 0.4; }
+    .task-card.sortable-chosen { cursor: grabbing; }
+    .task-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+      color: #1a1a2e;
+    }
+    .task-desc {
+      font-size: 0.8rem;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .task-meta {
+      font-size: 0.7rem;
+      color: #999;
+    }
+    .task-actions {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: none;
+      gap: 4px;
+    }
+    .task-card:hover .task-actions { display: flex; }
+    .btn-icon {
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      transition: background 0.2s;
+    }
+    .btn-edit   { color: #0d6efd; }
+    .btn-edit:hover   { background: #e7f1ff; }
+    .btn-delete { color: #e74c3c; }
+    .btn-delete:hover { background: #fdecea; }
+    .add-task-btn {
+      margin: 0 10px 10px;
+      padding: 8px;
+      background: transparent;
+      border: 2px dashed #adb5bd;
+      border-radius: 8px;
+      color: #6c757d;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+      width: calc(100% - 20px);
+    }
+    .add-task-btn:hover { background: rgba(0,0,0,0.04); border-color: #6c757d; }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 400px;
+      max-width: 90vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .modal h2 { margin-bottom: 16px; font-size: 1.1rem; color: #1a1a2e; }
+    .modal input, .modal textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    .modal textarea { height: 80px; resize: vertical; }
+    .modal input:focus, .modal textarea:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 3px rgba(13,110,253,0.15);
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn {
+      padding: 9px 18px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: #0d6efd; color: white; }
+    .btn-primary:hover { background: #0b5ed7; }
+    .btn-secondary { background: #e9ecef; color: #495057; }
+    .btn-secondary:hover { background: #dee2e6; }
+    .loading {
+      text-align: center;
+      padding: 30px;
+      color: #888;
+      font-size: 0.9rem;
+    }
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1a1a2e;
+      color: white;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 9999;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>🗂️ Kanban Board</h1>
+  <span id="sync-status">● Live</span>
+</header>
+<div class="board">
+  <!-- Backlog -->
+  <div class="column col-backlog">
+    <div class="column-header">
+      📋 Backlog
+      <span class="task-count" id="count-Backlog">0</span>
+    </div>
+    <div class="task-list" id="col-Backlog" data-status="Backlog"></div>
+    <button class="add-task-btn" onclick="openAddModal('Backlog')">+ Add Task</button>
+  </div>
+  <!-- In-Progress -->
+  <div class="column col-inprogress">
+    <div class="column-header">
+      🔄 In-Progress
+      <span class="task-count" id="count-In-Progress">0</span>
+    </div>
+    <div class="task-list" id="col-In-Progress" data-status="In-Progress"></div>
+    <button class="add-task-btn" onclick="openAddModal('In-Progress')">+ Add Task</button>
+  </div>
+  <!-- Done -->
+  <div class="column col-done">
+    <div class="column-header">
+      ✅ Done
+      <span class="task-count" id="count-Done">0</span>
+    </div>
+    <div class="task-list" id="col-Done" data-status="Done"></div>
+    <button class="add-task-btn" onclick="openAddModal('Done')">+ Add Task</button>
+  </div>
+</div>
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="taskModal">
+  <div class="modal">
+    <h2 id="modal-title">Add Task</h2>
+    <input type="text" id="task-title-input" placeholder="Task title *" />
+    <textarea id="task-desc-input" placeholder="Description (optional)"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-save-btn" onclick="saveTask()">Add Task</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<?!= include('JavaScript'); ?>
+</body>
+</html>

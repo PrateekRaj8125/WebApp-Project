@@ -1,0 +1,243 @@
+<script>
+  let allTasks = [];
+  let lastTimestamp = '';
+  let pollInterval = null;
+  let modalMode = 'add';       // 'add' | 'edit'
+  let editingTaskId = null;
+  let addingToStatus = 'Backlog';
+  let isSaving = false;
+  document.addEventListener('DOMContentLoaded', () => {
+    loadTasks();
+    startPolling();
+  });
+  function startPolling() {
+    pollInterval = setInterval(pollForUpdates, 4000); // every 4 seconds
+  }
+  function pollForUpdates() {
+    setSyncStatus('syncing');
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.updated) {
+          allTasks = res.tasks;
+          lastTimestamp = res.latestTimestamp || lastTimestamp;
+          renderBoard();
+          showToast('Board updated');
+        }
+        setSyncStatus('live');
+      })
+      .withFailureHandler(err => {
+        setSyncStatus('error');
+        console.error('Poll error:', err);
+      })
+      .getTasksIfUpdated(lastTimestamp);
+  }
+  function loadTasks() {
+    setSyncStatus('syncing');
+    google.script.run
+      .withSuccessHandler(tasks => {
+        allTasks = tasks;
+        if (tasks.length > 0) {
+          lastTimestamp = tasks.reduce((m, t) =>
+            t.lastUpdated > m ? t.lastUpdated : m, '');
+        }
+        renderBoard();
+        setSyncStatus('live');
+      })
+      .withFailureHandler(err => {
+        setSyncStatus('error');
+        showToast('Failed to load tasks');
+        console.error(err);
+      })
+      .getTasks();
+  }
+  function renderBoard() {
+    const statuses = ['Backlog', 'In-Progress', 'Done'];
+    statuses.forEach(status => {
+      const col = document.getElementById('col-' + status);
+      const tasks = allTasks.filter(t => t.status === status);
+      document.getElementById('count-' + status).textContent = tasks.length;
+      col.innerHTML = '';
+      tasks.forEach(task => {
+        col.appendChild(createTaskCard(task));
+      });
+    });
+    initSortable();
+  }
+  function createTaskCard(task) {
+    const card = document.createElement('div');
+    card.className = 'task-card';
+    card.dataset.id = task.id;
+    const date = task.lastUpdated
+      ? new Date(task.lastUpdated).toLocaleString()
+      : '';
+    card.innerHTML = `
+      <div class="task-actions">
+        <button class="btn-icon btn-edit" onclick="openEditModal('${task.id}')">✏️</button>
+        <button class="btn-icon btn-delete" onclick="confirmDelete('${task.id}')">🗑️</button>
+      </div>
+      <div class="task-title">${escapeHtml(task.title)}</div>
+      ${task.description
+        ? `<div class="task-desc">${escapeHtml(task.description)}</div>`
+        : ''}
+      <div class="task-meta">Updated: ${date}</div>
+    `;
+    return card;
+  }
+  function initSortable() {
+    const statuses = ['Backlog', 'In-Progress', 'Done'];
+    statuses.forEach(status => {
+      const el = document.getElementById('col-' + status);
+      if (el._sortable) el._sortable.destroy();
+      el._sortable = Sortable.create(el, {
+        group: 'kanban',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        onEnd: function(evt) {
+          const taskId   = evt.item.dataset.id;
+          const newStatus = evt.to.dataset.status;
+          const oldStatus = evt.from.dataset.status;
+          if (newStatus !== oldStatus) {
+            updateStatus(taskId, newStatus);
+          }
+        }
+      });
+    });
+  }
+  function updateStatus(taskId, newStatus) {
+    setSyncStatus('syncing');
+    const task = allTasks.find(t => t.id === taskId);
+    if (task) task.status = newStatus;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res.success) {
+          showToast('Update failed: ' + res.error);
+          loadTasks();
+        }
+        setSyncStatus('live');
+      })
+      .withFailureHandler(err => {
+        setSyncStatus('error');
+        showToast('Error updating task');
+        loadTasks();
+      })
+      .updateTaskStatus(taskId, newStatus);
+  }
+  function openAddModal(status) {
+    modalMode = 'add';
+    addingToStatus = status;
+    editingTaskId = null;
+    document.getElementById('modal-title').textContent = 'Add Task to ' + status;
+    document.getElementById('modal-save-btn').textContent = 'Add Task';
+    document.getElementById('task-title-input').value = '';
+    document.getElementById('task-desc-input').value = '';
+    document.getElementById('taskModal').classList.add('active');
+    document.getElementById('task-title-input').focus();
+  }
+  function openEditModal(taskId) {
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task) return;
+    modalMode = 'edit';
+    editingTaskId = taskId;
+    document.getElementById('modal-title').textContent = 'Edit Task';
+    document.getElementById('modal-save-btn').textContent = 'Save Changes';
+    document.getElementById('task-title-input').value = task.title;
+    document.getElementById('task-desc-input').value = task.description || '';
+    document.getElementById('taskModal').classList.add('active');
+    document.getElementById('task-title-input').focus();
+  }
+  function closeModal() {
+    document.getElementById('taskModal').classList.remove('active');
+  }
+  function saveTask() {
+    const title = document.getElementById('task-title-input').value.trim();
+    const desc  = document.getElementById('task-desc-input').value.trim();
+    if (!title) { showToast('Please enter a title'); return; }
+    if (isSaving) return;
+    isSaving = true;
+    setSyncStatus('syncing');
+    closeModal();
+    if (modalMode === 'add') {
+      const tempTask = {
+        id: 'temp_' + Date.now(),
+        title, description: desc,
+        status: addingToStatus,
+        lastUpdated: new Date().toISOString()
+      };
+      allTasks.push(tempTask);
+      renderBoard();
+      google.script.run
+        .withSuccessHandler(res => {
+          isSaving = false;
+          if (res.success) {
+            // Replace temp task with real ID
+            const idx = allTasks.findIndex(t => t.id === tempTask.id);
+            if (idx !== -1) allTasks[idx].id = res.id;
+            renderBoard();
+          } else {
+            showToast('Failed to add task');
+            loadTasks();
+          }
+          setSyncStatus('live');
+        })
+        .withFailureHandler(() => {
+          isSaving = false;
+          setSyncStatus('error');
+          showToast('Error adding task');
+          loadTasks();
+        })
+        .addTask(title, desc);
+    } else {
+      const task = allTasks.find(t => t.id === editingTaskId);
+      if (task) { task.title = title; task.description = desc; }
+      renderBoard();
+      google.script.run
+        .withSuccessHandler(res => {
+          isSaving = false;
+          if (!res.success) { showToast('Edit failed'); loadTasks(); }
+          setSyncStatus('live');
+        })
+        .withFailureHandler(() => {
+          isSaving = false;
+          setSyncStatus('error');
+          showToast('Error editing task');
+          loadTasks();
+        })
+        .editTask(editingTaskId, title, desc);
+    }
+  }
+  function confirmDelete(taskId) {
+    if (!confirm('Delete this task?')) return;
+    allTasks = allTasks.filter(t => t.id !== taskId);
+    renderBoard();
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res.success) { showToast('Delete failed'); loadTasks(); }
+      })
+      .withFailureHandler(() => {
+        showToast('Error deleting task');
+        loadTasks();
+      })
+      .deleteTask(taskId);
+  }
+  function setSyncStatus(state) {
+    const el = document.getElementById('sync-status');
+    if (state === 'live')    { el.textContent = '● Live';    el.className = ''; }
+    if (state === 'syncing') { el.textContent = '● Syncing'; el.className = 'syncing'; }
+    if (state === 'error')   { el.textContent = '● Error';   el.className = 'error'; }
+  }
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  document.getElementById('taskModal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+</script>
